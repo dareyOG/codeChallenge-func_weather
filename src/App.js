@@ -1,57 +1,41 @@
-import { useEffect, useState } from 'react';
-
-function getWeatherIcon(wmoCode) {
-  const icons = new Map([
-    [[0], '☀️'],
-    [[1], '⛅'],
-    [[2], '⛅️'],
-    [[3], '☁️'],
-    [[45, 48], '🌫'],
-    [[51, 56, 61, 66, 80], '🌦'],
-    [[53, 55, 63, 65, 57, 67, 81, 82], '🌧'],
-    [[71, 73, 75, 77, 85, 86], '🌨'],
-    [[95], '🌩'],
-    [[96, 99], '⛈'],
-  ]);
-  const arr = [...icons.keys()].find(key => key.includes(wmoCode));
-  if (!arr) return 'NOT FOUND';
-  return icons.get(arr);
-}
-
-// function convertToFlag(countryCode) {
-//   const codePoints = countryCode
-//     .toUpperCase()
-//     .split('')
-//     .map(char => 127397 + char.charCodeAt());
-//   return String.fromCodePoint(...codePoints);
-// }
-
-function formatDay(dateStr) {
-  return new Intl.DateTimeFormat('en', {
-    weekday: 'short',
-  }).format(new Date(dateStr));
-}
+import { useEffect, useRef, useState } from 'react';
+import * as wf from './weatherFormatter';
 
 export default function App() {
-  const [inputLocation, setInputLocation] = useState('');
-  // const [weather, setWeather] = useState({});
+  const [location, setLocation] = useState('');
   return (
     <div className="app">
       <h1>Func Weather</h1>
-      <Input input={inputLocation} setInput={setInputLocation} />
-      <Weather weatherLocation={inputLocation} />
+      <Input location={location} setLocation={setLocation} />
+      <Weather weatherLocation={location} />
     </div>
   );
 }
 
-function Input({ input, setInput }) {
+function Input({ location, setLocation }) {
+  const inputEl = useRef(null);
+  useEffect(
+    function () {
+      const activeInput = e => {
+        if (e.code === 'Space') inputEl.current.focus();
+        if (e.code === 'Delete') setLocation('');
+        if (document.activeElement !== inputEl.current) return;
+      };
+      document.addEventListener('keydown', activeInput);
+      return function () {
+        document.removeEventListener('keydown', activeInput);
+      };
+    },
+    [location, setLocation]
+  );
   return (
     <div>
       <input
         type="text"
         placeholder="Search for location... "
-        value={input}
-        onChange={e => setInput(e.target.value)}
+        value={location}
+        onChange={e => setLocation(e.target.value)}
+        ref={inputEl}
       />
     </div>
   );
@@ -59,62 +43,101 @@ function Input({ input, setInput }) {
 
 function Weather({ weatherLocation }) {
   const [weather, setWeather] = useState({});
-  // const [error, setError] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
+
   useEffect(
     function () {
-      if (weatherLocation.length < 3) return;
       async function getWeather() {
-        //1️⃣ fetch location
         try {
+          setIsLoading(true);
+          if (!weatherLocation) setError('Input location');
+
+          // get location data
           const geoRes = await fetch(
             `https://geocoding-api.open-meteo.com/v1/search?name=${weatherLocation}`
           );
           const geoData = await geoRes.json();
 
-          if (!geoData.results) throw new Error('Location not found');
+          console.log(geoData.results.at(0));
 
-          // destructure geoData
-          const { country, latitude, longitude, timezone } =
+          if (!geoData.results) throw new Error('Location not found');
+          // setError('');
+
+          const { name, country, latitude, longitude, timezone } =
             geoData.results.at(0);
 
-          console.log(country);
-
-          //2️⃣ fetch weather
+          // get weather data
           const weatherRes = await fetch(
             `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&timezone=${timezone}&daily=weathercode,temperature_2m_max,temperature_2m_min`
           );
 
-          if (!weatherRes.ok) {
-            // setError('Error fetching data');
-            console.log('Error fetching data');
-          }
-          const weatherData = await weatherRes.json();
-          console.log(weatherData);
+          // console.log(weatherRes);
+          if (!weatherRes.ok) throw new Error('Data fetching failed');
 
-          // destructure weatherData
+          const weatherData = await weatherRes.json();
+
           const {
-            time: dates,
+            time: days,
             temperature_2m_max: max,
             temperature_2m_min: min,
             weathercode: codes,
           } = weatherData.daily;
 
-          setWeather({ dates, country, max, min, codes });
+          const weatherReport = { name, country, days, max, min, codes };
+
+          // console.log(weatherReport);
+          setWeather(weatherReport);
         } catch (err) {
-          console.log(err.message);
-          // setError(err.message);
+          if (error) setError(err.message);
+        } finally {
+          setIsLoading(false);
         }
       }
       getWeather();
     },
-    [weatherLocation]
+    [weatherLocation, error]
   );
-  const { dates, country, max, min, codes } = weather;
-  console.log(dates);
+
   return (
     <div>
-      <h2>{`${weatherLocation}, ${country}`}</h2>
-      <ul className="weather"></ul>
+      {error ? (
+        <Error errorMessage={error} />
+      ) : isLoading ? (
+        'Loading...'
+      ) : (
+        <>
+          <h2>{`${weather.name}, ${weather.country}`}</h2>
+          <ul className="weather">
+            {weather.days?.map((day, index) => (
+              <Day
+                key={index}
+                day={day}
+                code={weather.codes.at(index)}
+                max={weather.max.at(index)}
+                min={weather.min.at(index)}
+                isToday={index === 0}
+              />
+            ))}
+          </ul>
+        </>
+      )}
     </div>
   );
+}
+
+function Day({ day, code, max, min, isToday }) {
+  return (
+    <li className="day">
+      <span>{wf.getWeatherIcon(code)}</span>
+      <p>{isToday ? 'Today' : wf.formatDay(day)}</p>
+      <p>
+        {Math.floor(min)}&deg; &mdash; <strong>{Math.ceil(max)}</strong>&deg;
+      </p>
+    </li>
+  );
+}
+
+function Error({ errorMessage }) {
+  return <div>{errorMessage}</div>;
 }
