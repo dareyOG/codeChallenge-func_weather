@@ -1,4 +1,4 @@
-import * as wf from '../weatherFormatter';
+import * as wf from '../weatherformatter/weatherFormatter';
 
 export function Day({ day, code, max, min, isToday }) {
   return (
