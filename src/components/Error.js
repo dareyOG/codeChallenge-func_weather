@@ -1,3 +1,8 @@
 export function Error({ errorMessage }) {
-  return <div>{errorMessage}</div>;
+  return (
+    <p>
+      {/* <span>🚫</span> */}
+      {errorMessage}
+    </p>
+  );
 }
